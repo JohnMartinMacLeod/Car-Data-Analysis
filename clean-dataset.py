@@ -97,24 +97,37 @@ COLS_TO_CALCULATE_STATISTICS = [
 #############
 
 # Returns a column with values normalised between 0 and 1.
-def normalise_col(col, decimal = 2):
-    min_val = col.min()
-    max_val = col.max()
-    return round(((col - min_val) / (max_val - min_val)), decimal)
+def normalise_col(column : pd.Series, precision = 2):
+    min_val = column.min()
+    max_val = column.max()
+    return round(((column - min_val) / (max_val - min_val)), precision)
 
 # Calculates and returns the lower and upper fence of the given column using IQR.
-def calculate_col_iqr(col):
-    q1 = col.quantile(0.25)
-    q3 = col.quantile(0.75)
+def calculate_col_iqr(column : pd.Series):
+    q1 = column.quantile(0.25)
+    q3 = column.quantile(0.75)
     iqr = q3 - q1
     lower_fence = q1 - (1.5 * iqr)
     upper_fence = q3 + (1.5 * iqr)
     return lower_fence, upper_fence
 
-# Returns a series mask for values outside of lower and upper in a series, inclusive.
-def get_outlier_mask(col, lower, upper):
-    return((col >= upper) | (col <= lower))
+# Returns a series mask for values outside the IQR in a series.
+def get_outlier_mask(column : pd.Series, lower, upper):
+    return((column > upper) | (column < lower))
 
+
+def display_col_outlier_results(column_name : str, outliers_results : dict):
+    print(
+        f"\nColumn: {column_name}"
+        f"\nLower fence: {outliers_results[column_name]["lower_fence"]}"
+        f"\nUpper fence: {outliers_results[column_name]["upper_fence"]}"
+        f"\nNumber of outliers: {len(outliers_results[column_name]["outliers"])}"
+    )
+    unique_outliers = outliers_results[column_name]["outliers"].unique()
+    print(
+        f"\nNumber of unique outliers: {len(unique_outliers)}"
+        f"\nUnique outliers: {pd.Series(unique_outliers).sort_values(ascending=True).to_numpy()}"
+    )
 
 ###############################
 # Section 1 - Data Formatting #
@@ -124,9 +137,9 @@ def get_outlier_mask(col, lower, upper):
 
 # Convert the "mileage", "num_of_doors", and "seating_capacity" columns to integers,
 # entries that cannot be converted are changed to NaN.
-for col in COLS_TO_MAKE_NUMERIC:
-    df[col] = ["".join(filter(str.isdigit, val)) for val in df[col]]
-    df[col] = pd.to_numeric(df[col], errors="coerce")
+for column_name in COLS_TO_MAKE_NUMERIC:
+    df[column_name] = ["".join(filter(str.isdigit, val)) for val in df[column_name]]
+    df[column_name] = pd.to_numeric(df[column_name], errors="coerce")
 
 # Convert the "fuel_consumption" column to float, 
 # entries that cannot be converted are changed to NaN.
@@ -159,8 +172,8 @@ df["engine_capacity"] = df["engine_capacity"].str.lower().str.removesuffix("l").
 ###########
 
 # Convert columns to lowercase
-for col in COLS_TO_MAKE_LOWERCASE:
-    df[col] = df[col].str.lower()
+for column_name in COLS_TO_MAKE_LOWERCASE:
+    df[column_name] = df[column_name].str.lower()
 
 
 #################################################
@@ -176,13 +189,13 @@ for col in COLS_TO_MAKE_LOWERCASE:
 
 # Calculate mean, median, mode, standard deviation, and range of "price_aud", "mileage", and "year_of_manufacture"
 statistics = {}
-for col in COLS_TO_CALCULATE_STATISTICS:
-    statistics[col] = {
-        "mean" : round(df[col].mean(), 2),
-        "median" : round(df[col].median(), 2),
-        "mode" : round(df[col].mode()[0], 2),
-        "standard_deviation" : round(df[col].std(), 2),
-        "range" : round((df[col].max() - df[col].min()), 2)
+for column_name in COLS_TO_CALCULATE_STATISTICS:
+    statistics[column_name] = {
+        "mean" : round(df[column_name].mean(), 2),
+        "median" : round(df[column_name].median(), 2),
+        "mode" : round(df[column_name].mode()[0], 2),
+        "standard_deviation" : round(df[column_name].std(), 2),
+        "range" : round((df[column_name].max() - df[column_name].min()), 2)
     }
 
 
@@ -191,38 +204,37 @@ for col in COLS_TO_CALCULATE_STATISTICS:
 #############
 
 # Detect outliers using the IQR method.
-for col in COLS_TO_CHECK_FOR_OUTLIERS:
-    lower, upper = calculate_col_iqr(df[col])
-    outlier_mask = get_outlier_mask(df[col], lower, upper)
-    outliers = df.loc[outlier_mask, col]
-
-    print(
-        f"\nColumn: {col}"
-        f"\nLower fence: {lower}"
-        f"\nUpper fence: {upper}"
-        f"\nNumber of outliers: {len(outliers)}"
-    )
-    unique_outliers = outliers.unique()
-    print(
-        f"\nNumber of unique outliers: {len(unique_outliers)}"
-        f"\nUnique outliers: {pd.Series(unique_outliers).sort_values(ascending=True).to_numpy()}"
-    )
-
+outlier_results = {}
+for column_name in COLS_TO_CHECK_FOR_OUTLIERS:
+    lower, upper = calculate_col_iqr(df[column_name])
+    outlier_mask = get_outlier_mask(df[column_name], lower, upper)
+    outlier_results[column_name] = {
+        "lower_fence" : lower, 
+        "upper_fence" : upper,
+        "outliers" : df.loc[outlier_mask, column_name]
+    }
+    
 
 ########################################
 # Justifications for outlier treatment #
 ########################################
 
-# mileage - All outliers are above the upper fence, though the upper fence is a reasonable value for mileage on a vehicle.
-# Though unlikely, it is possible for a vehicle to have a mileage of 1,000,000km. Due to the statistic improbability of 
-# this many vehicles having over 1,000,000km mileage, all values over 1,000,000 have been removed.
+display_col_outlier_results("mileage", outlier_results)
 
-# num_of_doors - The lower fence is 2.5, but it is possible for a vehicle to have 1 door e.g., a bus. It is also possible, though unlikely,
-# for a vehicle to have 7 doors. However, 42 and above is likely an impossible value to achieve.
+# mileage - All outliers are above the upper fence, though the upper fence is a reasonable value for mileage on a vehicle.
+# While unlikely, it is possible for a vehicle to have a mileage of 1,000,000Km. Due to the improbability of this many 
+# vehicles having over 1,000,000Km mileage, all values over 1,000,000 are considered erroneous and have been removed.
+
+display_col_outlier_results("num_of_doors", outlier_results)
+
+# num_of_doors - The lower fence is 2.5, but it is possible for a vehicle to have 1 door e.g., a bus. 
+# It is also possible, though uncommon, for a vehicle to have 7 doors. However, 42+ doors is clearly erroneous.
 # Therefore values between 1 and 7 were kept, due to being possible values, even if unlikely.
 # Values below 1 and above 7 have been removed due to their likely impossible nature. 
 
-# engine_capacity - The lower fence for engine capacity is 0.1. 
+display_col_outlier_results("engine_capacity", outlier_results)
+
+# engine_capacity - The lower fence for engine capacity is 0.1L. 
 # However, an engine capacity of 0.1 or below is considered unlikely
 # for a non-electric vehicle. Therefore, any capacity 0.1 or lower 
 # has been removed. Manual inspection has revealed that one non-electric
@@ -232,9 +244,13 @@ for col in COLS_TO_CHECK_FOR_OUTLIERS:
 # The upper fence is 3.75L, however, many trucks have an engine capacity of 13 litres. 
 # As the highest valued outlier is 12.7 litres, values above the upper fence can remain.
 
+display_col_outlier_results("fuel_consumption", outlier_results)
+
 # fuel_consumption - some outliers above the upper fence are reasonable, while others verge on unlikely or impossible. 
 # The only value below the lower fence that could be considered unrealistic is 0, which is entirely achieveable in electric vehicles.
 # Therefore, values below the lower fence will remain, values above 20 will be removed.
+
+display_col_outlier_results("price_aud", outlier_results)
 
 # price_aud - The IQR upper fence is $76,518.37, but this is a reasonable price for many vehices.
 # Manual inspection of outliers with values above the upper fence + standard deviation revealed that most vehicles
@@ -243,7 +259,8 @@ for col in COLS_TO_CHECK_FOR_OUTLIERS:
 # but still an unlikely price for a vehicle. The lowest price that is not near-zero is $728.75, which is a valid price for a vehice.
 # The difference between 728.75 and the near-zero values is a clear separation indicative of anomalous data, therefore all values below 700 will be removed.
 
-
+##############
+# Task 2B ii #
 ##############################################################
 # Justifications for missing and/or invalid values treatment #
 ##############################################################
@@ -280,9 +297,7 @@ print(df.isna().sum())
 # descriptive enough to convey useful information to someone reading the data, they have been replacedwith "unknown". 
 # Additionally, the American spelling of "gray" has been replaced with the English spelling, "grey".
 
-##############
-# Task 2B ii #
-##############
+
 
 # Fill empty "fuel_system" entries with "unknown".
 df[["fuel_system"]] = df[["fuel_system"]].fillna("unknown")
@@ -296,14 +311,29 @@ df[["exterior_color", "interior_color"]] = df[["exterior_color", "interior_color
 df[["exterior_color", "interior_color"]] = df[["exterior_color", "interior_color"]].replace("gray", "grey")
 
 
+###############################################
+# Task 2A - Intentionally duplicated after 2B #
+###############################################
+
+# Calculate mean, median, mode, standard deviation, and range of "price_aud", "mileage", and "year_of_manufacture"
+statistics = {}
+for column_name in COLS_TO_CALCULATE_STATISTICS:
+    statistics[column_name] = {
+        "mean" : round(df[column_name].mean(), 2),
+        "median" : round(df[column_name].median(), 2),
+        "mode" : round(df[column_name].mode()[0], 2),
+        "standard_deviation" : round(df[column_name].std(), 2),
+        "range" : round((df[column_name].max() - df[column_name].min()), 2)
+    }
+
 ###########
 # Task 1C #
 ###########
 
 # Encode columns
 if ENCODING:
-    for col in COLS_TO_HOT_ONE_ENCODE:
-        hot_one_encoded_cols = pd.get_dummies(df[col], prefix = col, dtype = int)
+    for column_name in COLS_TO_HOT_ONE_ENCODE:
+        hot_one_encoded_cols = pd.get_dummies(df[column_name], prefix = column_name, dtype = int)
         df = pd.concat([df, hot_one_encoded_cols], axis = 1)
     df["label_encoded_origin"] = df["origin"].map({"domestic assembly": 0, "imported": 1})
     df["label_encoded_condition"] = df["condition"].map({"used car": 0, "new car": 1})
@@ -316,8 +346,8 @@ if ENCODING:
 
 # Normaise columns, creating a new column for each.
 if NORMALISE:
-    for col in COLS_TO_NORMALISE:
-        df["normalised_" + col] = normalise_col(df[col])
+    for column_name in COLS_TO_NORMALISE:
+        df["normalised_" + column_name] = normalise_col(df[column_name])
 
 
 ############################
