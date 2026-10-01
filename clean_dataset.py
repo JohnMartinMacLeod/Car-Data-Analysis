@@ -19,15 +19,15 @@
 ####################################################################################################
 
 import pandas as pd
-import numpy as np
+import plotly.express as px
 import matplotlib.pyplot as plt
 import seaborn as sns
 import sqlite3
 import csv
 
 RAW_DATA_PATH = "car_dataset.csv"
-ENCODING = False
-NORMALISE = False
+ENCODING = True
+NORMALISE = True
 
 df = pd.read_csv(RAW_DATA_PATH)
 
@@ -194,9 +194,9 @@ for column_name in COLS_TO_MAKE_LOWERCASE:
 ###########
 
 # Calculate mean, median, mode, standard deviation, and range of "price_aud", "mileage", and "year_of_manufacture"
-statistics = {}
+statistics_before = {}
 for column_name in COLS_TO_CALCULATE_STATISTICS:
-    statistics[column_name] = {
+    statistics_before[column_name] = {
         "mean" : round(df[column_name].mean(), 2),
         "median" : round(df[column_name].median(), 2),
         "mode" : round(df[column_name].mode()[0], 2),
@@ -270,7 +270,15 @@ df = df[(df["fuel_consumption"] <= 20.0) | (df["fuel_consumption"].isna())]
 
 # fuel_consumption - Some outliers above the upper IQR fence are reasonable, while others verge on unlikely or impossible. 
 # The only value below the lower fence that could be considered unrealistic is 0, which is entirely achieveable in electric vehicles.
-# Therefore, values below the lower fence will remain, values above 20 will be removed.
+# Therefore, values above 20 are considered erroneous and values below the lower fence will be retained.
+
+display_col_outlier_results("seating_capacity", outlier_results)
+df = df[df["seating_capacity"] > 0]
+
+# seating_capacity - The IQR upper fence is 10.0, but manual inspection of entries with seating_capacity > 10.0 reveals that
+# the majority of these entries belong to vehicles that could reasonably have > 10 seats, such as busses. 
+# The IQR lower fence is 2.0, but it is possible for a vehicle to have only 1 seat. However, it is not possible for a vehicle
+# to have 0 seats. Therefore, all values less than one are considered erroneous and only values above 0 have been retained.
 
 display_col_outlier_results("price_aud", outlier_results)
 df = df[df["price_aud"] >= 700]
@@ -353,15 +361,29 @@ print(df.isna().sum())
 ###############################################
 
 # Calculate mean, median, mode, standard deviation, and range of "price_aud", "mileage", and "year_of_manufacture"
-statistics = {}
+statistics_after = {}
 for column_name in COLS_TO_CALCULATE_STATISTICS:
-    statistics[column_name] = {
+    statistics_after[column_name] = {
         "mean" : round(df[column_name].mean(), 2),
         "median" : round(df[column_name].median(), 2),
         "mode" : round(df[column_name].mode()[0], 2),
         "standard_deviation" : round(df[column_name].std(), 2),
         "range" : round((df[column_name].max() - df[column_name].min()), 2)
     }
+
+statistics_before_df = pd.DataFrame(statistics_before)
+statistics_after_df = pd.DataFrame(statistics_after)
+print("\nStatistics of price_aud, mileage, and year_of_manufacture")
+print("Before outlier and missing value treatment:\n", statistics_before_df, "\n")
+print("After outlier and missing value treatment:\n", statistics_after_df)
+
+# These statistics reveal that cleaning the data had very little impact on price_aud and year_of_manufacture.
+# This indicates that the data in these fields was likely already quite clean. However, cleaning had a significant
+# impact on the statistics of mileage. The mean mileage is orders of magnitude above the median due to a handful
+# of incredibly large values skewing the results. After removal of the anomalous data, the mean, standard deviation, 
+# and range have decreased substantially, while the median and mode remained unchanged. This demonstrates how 
+# extreme outliers can significantly affect calculation of statistics, and why data cleaning is an important step in the
+# EDA pipeline
 
 ###########
 # Task 1C #
@@ -512,11 +534,14 @@ print(f"Saved {QUERY_OUTPUT_PATH}")
 
 con.close()
 
-############################
-# Section 4a - Visualization #
-############################
-
-# i. Mileage vs Price, and Price Trend over Year of Manufacture
+##################################
+# Section 4 - Data Visualisation #
+##################################
+# Task 4A - Static Visualisation #
+##################################
+# Task 4A i #
+#############
+# Examining the relationship between mileage and price.
 # CHART CHOICE: Scatter plot.
 # A scatter plot is the appropriate choice for examining the relationship
 # between two continuous numerical variables (mileage and price), as it
@@ -535,17 +560,17 @@ sns.scatterplot(
 )
 ax.set(
     title="Relationship Between Mileage and Price",
-    xlabel="Mileage (km, log scale)",
+    xlabel="Mileage (km)",
     ylabel="Price (AUD, log scale)",
 )
-ax.set_xscale("log")
+
 ax.set_yscale("log")
 ax.legend()
 plt.tight_layout()
 plt.savefig("chart1_mileage_vs_price.png", dpi=100)
 plt.close()
 
-# ii. Line plot: trend of average price over year of manufacture
+# Analysing the trend of average price over year of manufacture.
 # CHART CHOICE: Line plot.
 # A line plot is the appropriate choice for showing a trend across an
 # ordered sequence (year), since it emphasises the direction and shape
@@ -580,8 +605,10 @@ plt.tight_layout()
 plt.savefig("chart2_price_trend_by_year.png", dpi=100)
 plt.close()
 
-# iii. Average price by car model
-
+###############
+# Task 4A ii #
+###############
+# Comparing the average price by car model.
 # CHART CHOICE: Horizontal bar chart.
 # A bar chart is appropriate for comparing a single numerical value
 # (average price) across a small number of discrete categories (car
@@ -612,7 +639,10 @@ plt.tight_layout()
 plt.savefig("chart3_avg_price_by_model.png", dpi=100)
 plt.close()
 
-# iv. Distribution of engine capacity
+###############
+# Task 4A iii #
+###############
+# Distribution of engine capacity.
 # CHART CHOICE: Histogram with KDE overlay.
 # A histogram is the appropriate choice for visualising the distribution
 # (shape, spread, and modality) of a single continuous numerical variable.
@@ -636,7 +666,10 @@ plt.tight_layout()
 plt.savefig("chart4_engine_capacity_distribution.png", dpi=100)
 plt.close()
 
-# v. Exterior colour distribution as a percentage of the whole
+##############
+# Task 4A iv #
+##############
+# Exterior colour distribution as a percentage of the whole
 # CHART CHOICE: Pie chart.
 # A pie chart is appropriate specifically because the requirement asks
 # for a percentage-of-whole breakdown of a categorical variable, which is
@@ -699,7 +732,10 @@ plt.tight_layout()
 plt.savefig("chart5_exterior_color_distribution.png", dpi=100)
 plt.close()
 
-# vi. Correlation between mileage, num_of_doors, seating_capacity, fuel_consumption, price
+#############
+# Task 4A v #
+#############
+# Correlation between mileage, num_of_doors, seating_capacity, fuel_consumption, price
 # CHART CHOICE: Correlation heatmap.
 # A heatmap is the appropriate choice for visualising correlation between
 # several numerical variables at once, since it lets every pairwise
@@ -724,3 +760,48 @@ plt.savefig("chart6_correlation_heatmap.png", dpi=100)
 plt.close()
 
 print("All charts saved successfully.")
+
+###################################################
+# Task 4B - Interactive Visualisation Enhancement #
+###################################################
+# Task 4B i #
+#############
+# This scatter plot enchances the visualisation for the relationship between mileage and price.
+# Price is displayed in a logarithmic scale to avoid compressing the datapoints towards the bottom.
+# Each entry is coloured based on it's condition and the clickable ledgend allows for filtering
+# of new or used cars. Each entry can be hovered to display the car_name, brand, grade, car_model,
+# year_of_manufacture, mileage, and price_aud associated with that entry. The plot also enables
+# zooming and panning, allowing the data to be insepcted more closely. 
+
+fig = px.scatter(
+    df,
+    x = "mileage",
+    y = "price_aud",
+    color = "condition",
+    hover_name = "car_name",
+    hover_data = [
+        "brand",
+        "grade",
+        "car_model",
+        "year_of_manufacture",
+        "mileage",
+        "price_aud"
+    ],
+    log_y = True,
+
+    title = "Interactive Visualisation of the Relationship Between Mileage and Price",
+    labels = {
+        "mileage" : "Mileage (km)",
+        "price_aud" : "Price (AUD, log scale)",
+        "condition" : "Condition"
+    }
+)
+
+fig.show()
+
+
+##############
+# Task 4B ii #
+##############
+# Enhancing the visualision for the comparison of average price by car model.
+
