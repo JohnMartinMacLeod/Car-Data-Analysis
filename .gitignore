@@ -3,3 +3,4 @@
 *.db
 *csv
 !car_dataset.csv
+!seller_dataset.csv
